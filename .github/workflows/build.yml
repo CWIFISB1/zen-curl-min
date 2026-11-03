@@ -1,0 +1,139 @@
+name: build-min-curl
+
+# 目标：产出 aarch64 Android 静态 curl（BoringSSL），体积目标 < 6MB
+# 判据来源（2026-11-03 实测）：
+#   TSL1.2 套件表必须是 BoringSSL 默认那 17 个：
+#     1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,c009,c013,c00a,c014,009c,009d,002f,0035
+#   多一个或少一个 -> 上游 429。所以必须用 BoringSSL 编译，且不要覆盖 --ciphers。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NDK
+        run: |
+          set -e
+          NDK_VER=r27c
+          echo "NDK_VER=$NDK_VER" >> $GITHUB_ENV
+          wget -q https://dl.google.com/android/repository/android-ndk-${NDK_VER}-linux.zip
+          unzip -q android-ndk-${NDK_VER}-linux.zip
+          echo "NDK=$PWD/android-ndk-${NDK_VER}" >> $GITHUB_ENV
+
+      - name: Setup cmake/ninja
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build golang-go perl
+
+      - name: Build BoringSSL (static, aarch64 android)
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/google/boringssl.git
+          cd boringssl
+          # 静态库 + 关闭不需要的组件，减小体积
+          cmake -G Ninja -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-Os -fvisibility=hidden -ffunction-sections -fdata-sections" \
+            -DCMAKE_CXX_FLAGS="-Os -fvisibility=hidden -ffunction-sections -fdata-sections" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DOPENSSL_NO_ASM=0
+          cmake --build build --target ssl crypto
+          find build -name '*.a' | sort
+
+      - name: Build curl (static, minimal)
+        run: |
+          set -e
+          curl -sL -o curl.tar.gz https://curl.se/download/curl-8.11.1.tar.gz
+          tar xzf curl.tar.gz
+          cd curl-8.11.1
+          SSL="$GITHUB_WORKSPACE/boringssl"
+          cmake -G Ninja -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_CURL_EXE=ON \
+            -DCURL_STATICLIB=ON \
+            -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -Wl,--gc-sections" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -s -Wl,--gc-sections" \
+            -DCURL_USE_OPENSSL=ON \
+            -DOPENSSL_ROOT_DIR="$SSL" \
+            -DOPENSSL_INCLUDE_DIR="$SSL/include" \
+            -DOPENSSL_SSL_LIBRARY="$SSL/build/ssl/libssl.a" \
+            -DOPENSSL_CRYPTO_LIBRARY="$SSL/build/crypto/libcrypto.a" \
+            -DHTTP_ONLY=ON \
+            -DCURL_ENABLE_SSL=ON \
+            -DCURL_USE_LIBPSL=OFF \
+            -DCURL_USE_LIBSSH2=OFF \
+            -DCURL_ZLIB=OFF \
+            -DCURL_BROTLI=OFF \
+            -DCURL_ZSTD=OFF \
+            -DUSE_NGHTTP2=OFF \
+            -DUSE_LIBIDN2=OFF \
+            -DCURL_DISABLE_LDAP=ON \
+            -DCURL_DISABLE_LDAPS=ON \
+            -DCURL_DISABLE_FTP=ON \
+            -DCURL_DISABLE_FILE=ON \
+            -DCURL_DISABLE_TELNET=ON \
+            -DCURL_DISABLE_DICT=ON \
+            -DCURL_DISABLE_TFTP=ON \
+            -DCURL_DISABLE_RTSP=ON \
+            -DCURL_DISABLE_POP3=ON \
+            -DCURL_DISABLE_IMAP=ON \
+            -DCURL_DISABLE_SMTP=ON \
+            -DCURL_DISABLE_MQTT=ON \
+            -DCURL_DISABLE_GOPHER=ON \
+            -DCURL_DISABLE_SMB=ON \
+            -DCURL_DISABLE_WEBSOCKETS=ON \
+            -DCURL_DISABLE_MANUAL=ON \
+            -DCURL_DISABLE_DOCS=ON \
+            -DENABLE_CURL_MANUAL=OFF \
+            -DCURL_DISABLE_ALTSVC=ON \
+            -DCURL_DISABLE_HSTS=ON \
+            -DCURL_DISABLE_NTLM=ON \
+            -DCURL_DISABLE_DIGEST_AUTH=OFF \
+            -DCURL_DISABLE_BEARER_AUTH=OFF \
+            -DCURL_DISABLE_AWS=ON \
+            -DCURL_DISABLE_DOH=ON \
+            -DCURL_DISABLE_PROGRESS_METER=OFF \
+            -DCURL_DISABLE_NETRC=ON \
+            -DCURL_DISABLE_PARSEDATE=OFF \
+            -DCURL_DISABLE_SHUFFLE_DNS=ON \
+            -DCURL_DISABLE_GETOPTIONS=ON \
+            -DCURL_DISABLE_KERBEROS_AUTH=ON \
+            -DCURL_DISABLE_NEGOTIATE_AUTH=ON \
+            -DCURL_DISABLE_ALT_SVC=ON \
+            -DCURL_DISABLE_FORM_API=ON \
+            -DCURL_DISABLE_HEADERS_API=ON \
+            -DCURL_DISABLE_CA_SEARCH=ON
+          cmake --build build --target curl
+          ls -lh build/src/curl
+
+      - name: Verify
+        run: |
+          set -e
+          BIN=curl-8.11.1/build/src/curl
+          file "$BIN"
+          NEEDED=$(readelf -d "$BIN" 2>/dev/null | grep -c NEEDED || true)
+          echo "NEEDED count = $NEEDED"
+          SZ=$(stat -c %s "$BIN")
+          echo "size = $SZ bytes ($((SZ/1024)) KB)"
+          echo "BIN=$BIN" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: curl-aarch64-android-static
+          path: curl-8.11.1/build/src/curl
