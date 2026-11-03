@@ -69,7 +69,7 @@ jobs:
             -DBUILD_CURL_EXE=ON \
             -DCURL_STATICLIB=ON \
             -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static -s -Wl,--gc-sections" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -s -Wl,--gc-sections -Wl,--start-group -lc++_static -lc++abi -lunwind -landroid_support -Wl,--end-group" \
             -DCURL_USE_OPENSSL=ON \
             -DHTTP_ONLY=ON \
             -DCURL_ENABLE_SSL=ON \
@@ -115,7 +115,8 @@ jobs:
             -DCURL_DISABLE_ALT_SVC=ON \
             -DCURL_DISABLE_FORM_API=ON \
             -DCURL_DISABLE_HEADERS_API=ON \
-            -DCURL_DISABLE_CA_SEARCH=ON
+            -DCURL_DISABLE_CA_SEARCH=ON \
+            -DCMAKE_CXX_STANDARD_LIBRARIES="-lc++_static -lc++abi -landroid_support"
           cmake --build build --target curl
           ls -lh build/src/curl
 
