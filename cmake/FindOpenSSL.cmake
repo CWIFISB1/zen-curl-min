@@ -4,18 +4,18 @@
 # 路径由 -DBORINGSSL_DIR=... 传入。
 
 set(_BS "${BORINGSSL_DIR}")
-if(NOT EXISTS "${_BS}/build/ssl/libssl.a")
-  message(FATAL_ERROR "libssl.a 不存在: ${_BS}/build/ssl/libssl.a")
+if(NOT EXISTS "${_BS}/build/libssl.a")
+  message(FATAL_ERROR "libssl.a 不存在: ${_BS}/build/libssl.a")
 endif()
-if(NOT EXISTS "${_BS}/build/crypto/libcrypto.a")
-  message(FATAL_ERROR "libcrypto.a 不存在: ${_BS}/build/crypto/libcrypto.a")
+if(NOT EXISTS "${_BS}/build/libcrypto.a")
+  message(FATAL_ERROR "libcrypto.a 不存在: ${_BS}/build/libcrypto.a")
 endif()
 
 set(OPENSSL_FOUND TRUE)
 set(OPENSSL_VERSION "1.1.1")
 set(OPENSSL_INCLUDE_DIR "${_BS}/include")
-set(OPENSSL_SSL_LIBRARY "${_BS}/build/ssl/libssl.a")
-set(OPENSSL_CRYPTO_LIBRARY "${_BS}/build/crypto/libcrypto.a")
+set(OPENSSL_SSL_LIBRARY "${_BS}/build/libssl.a")
+set(OPENSSL_CRYPTO_LIBRARY "${_BS}/build/libcrypto.a")
 set(OPENSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY}" "${OPENSSL_CRYPTO_LIBRARY}")
 
 if(NOT TARGET OpenSSL::SSL)
